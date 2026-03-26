@@ -12,22 +12,14 @@ from app.db.database import (
     get_feedback_summary,
     list_recent_feedback,
     list_reviewed_rfis,
-    create_workflow_item,
-    update_workflow_status,
-    list_workflow_items,
-    get_workflow_summary,
 )
-from app.models.rfi import (
-    RFIQuery,
-    FeedbackPayload,
-    WorkflowCreatePayload,
-    WorkflowStatusPayload,
-)
+from app.models.rfi import RFIQuery, FeedbackPayload
 from app.services.retrieve import RFIRetriever
 from app.services.generate_draft import generate_llm_draft
 from app.services.analyze import build_issue_analysis
 from app.services.pdf_ingest import parse_pdf_pages_to_rows
 from app.services.dataset_manager import ensure_dataset_exists, append_rows
+from app.services.context_builder import build_structured_context
 
 app = FastAPI(title="Smart RFI Assistant")
 
@@ -46,8 +38,8 @@ def reload_retriever():
 
 def ai_available() -> bool:
     return (
-        os.getenv("USE_OPENAI_DRAFTS", "false").lower() == "true" and
-        bool(os.getenv("OPENAI_API_KEY"))
+        os.getenv("USE_OPENAI_DRAFTS", "false").lower() == "true"
+        and bool(os.getenv("OPENAI_API_KEY"))
     )
 
 
@@ -64,7 +56,7 @@ def health():
         "dataset_path": str(DATA_PATH),
         "row_count": int(len(retriever.df)),
         "ai_available": ai_available(),
-        "retrieval_engine": "hybrid-faiss-rerank-cited",
+        "retrieval_engine": "intent-aware-hybrid-faiss-rerank",
         "index_status": retriever.index_status,
     }
 
@@ -212,6 +204,10 @@ def generate_response(query: RFIQuery):
     )
 
     requested_ai = query.use_ai and ai_available()
+    structured_context = build_structured_context(
+        retrieval.get("results", []),
+        retrieval.get("safeguards", []),
+    )
 
     draft = generate_llm_draft(
         new_subject=query.subject,
@@ -225,16 +221,19 @@ def generate_response(query: RFIQuery):
         "draft_response": draft,
         "similar_rfis": retrieval.get("results", []),
         "duplicate_warning": retrieval.get("duplicate_warning"),
-        "duplicate_candidates": retrieval.get("duplicate_candidates", []),
         "overall_confidence": retrieval.get("overall_confidence", "Low"),
         "confidence_score": retrieval.get("confidence_score", 0.0),
         "safeguards": retrieval.get("safeguards", []),
         "retrieval_count": len(retrieval.get("results", [])),
         "candidate_count": retrieval.get("candidate_count", len(retrieval.get("results", []))),
         "used_ai": bool(requested_ai),
-        "retrieval_engine": retrieval.get("retrieval_engine", "hybrid-faiss-rerank-cited"),
+        "retrieval_engine": retrieval.get("retrieval_engine", "intent-aware-hybrid-faiss-rerank"),
         "index_status": retrieval.get("index_status", "unknown"),
         "ai_available": ai_available(),
+        "query_intent": retrieval.get("query_intent", "general"),
+        "intent_labels": retrieval.get("intent_labels", []),
+        "expanded_queries": retrieval.get("expanded_queries", []),
+        "structured_context": structured_context,
     }
 
 
@@ -248,7 +247,6 @@ def submit_feedback(payload: FeedbackPayload):
         action=payload.action,
         overall_confidence=payload.overall_confidence,
         duplicate_warning=payload.duplicate_warning,
-        confidence_score=payload.confidence_score,
     )
 
     added_to_dataset = 0
@@ -284,40 +282,6 @@ def submit_feedback(payload: FeedbackPayload):
     return {
         "message": "Feedback saved successfully.",
         "added_to_dataset": added_to_dataset,
-    }
-
-
-@app.post("/workflow")
-def create_workflow(payload: WorkflowCreatePayload):
-    item_id = create_workflow_item(
-        subject=payload.subject,
-        question_text=payload.question_text,
-        generated_draft=payload.generated_draft,
-        final_draft=payload.final_draft,
-        trade=payload.trade,
-        spec_section=payload.spec_section,
-        project_name=payload.project_name,
-        overall_confidence=payload.overall_confidence,
-        confidence_score=payload.confidence_score,
-        duplicate_warning=payload.duplicate_warning,
-        status=payload.status,
-    )
-    return {"message": "Workflow item created.", "workflow_id": item_id}
-
-
-@app.post("/workflow/{item_id}/status")
-def set_workflow_status(item_id: int, payload: WorkflowStatusPayload):
-    updated = update_workflow_status(item_id, payload.status, payload.final_draft)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Workflow item not found.")
-    return {"message": "Workflow status updated.", "workflow_id": item_id, "status": payload.status}
-
-
-@app.get("/workflow")
-def get_workflow(status: str = None, limit: int = 200):
-    return {
-        "items": list_workflow_items(status=status, limit=limit),
-        "summary": get_workflow_summary(),
     }
 
 

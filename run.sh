@@ -1,37 +1,49 @@
 #!/bin/bash
 
-echo "🚀 Starting Smart RFI Assistant..."
+echo "Starting Smart RFI Assistant..."
 
 if [ -d ".venv" ]; then
-    source .venv/bin/activate
-else
-    echo "❌ Virtual environment not found. Run: python3 -m venv .venv"
-    exit 1
+  source .venv/bin/activate
 fi
 
-if [ -f ".env" ]; then
-    export $(grep -v '^#' .env | xargs)
+mkdir -p data/raw
+mkdir -p data/processed
+
+if [ ! -f "data/raw/rfis.csv" ]; then
+  echo "No dataset found. Creating sample data..."
+  python3 scripts/create_sample_data.py
 fi
 
-echo "🧹 Cleaning up old processes..."
 lsof -ti:8000 | xargs kill -9 2>/dev/null
 lsof -ti:8501 | xargs kill -9 2>/dev/null
 
-echo "🔧 Starting FastAPI backend..."
-uvicorn app.main:app --reload &
+echo "Starting FastAPI on port 8000..."
+uvicorn app.main:app --reload --port 8000 &
 BACKEND_PID=$!
 
-sleep 3
+echo "Waiting for backend to be ready..."
+for i in {1..30}; do
+  if curl -s http://127.0.0.1:8000/health >/dev/null; then
+    echo "Backend is ready."
+    break
+  fi
+  sleep 1
+done
 
-echo "🎨 Starting Streamlit frontend..."
-PYTHONPATH=. streamlit run ui/streamlit_app.py &
+if ! curl -s http://127.0.0.1:8000/health >/dev/null; then
+  echo "Backend failed to start in time."
+  kill $BACKEND_PID 2>/dev/null
+  exit 1
+fi
+
+echo "Starting Streamlit on port 8501..."
+streamlit run ui/streamlit_app.py --server.port 8501 &
 FRONTEND_PID=$!
 
 echo ""
-echo "✅ App is running:"
-echo "👉 Backend: http://127.0.0.1:8000"
-echo "👉 Frontend: http://localhost:8501"
+echo "Backend:  http://127.0.0.1:8000"
+echo "Frontend: http://localhost:8501"
 echo ""
-echo "Press CTRL+C to stop everything."
 
-wait $BACKEND_PID $FRONTEND_PID
+trap "kill $BACKEND_PID $FRONTEND_PID" EXIT
+wait

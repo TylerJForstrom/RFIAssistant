@@ -12,17 +12,8 @@ from app.db.database import (
     get_feedback_summary,
     list_recent_feedback,
     list_reviewed_rfis,
-    create_workflow_item,
-    update_workflow_status,
-    list_workflow_items,
-    get_workflow_summary,
 )
-from app.models.rfi import (
-    RFIQuery,
-    FeedbackPayload,
-    WorkflowCreatePayload,
-    WorkflowStatusPayload,
-)
+from app.models.rfi import RFIQuery, FeedbackPayload
 from app.services.retrieve import RFIRetriever
 from app.services.generate_draft import generate_llm_draft
 from app.services.analyze import build_issue_analysis
@@ -118,7 +109,10 @@ async def upload_csv(file: UploadFile = File(...)):
 
     missing = [col for col in required_columns if col not in df.columns]
     if missing:
-        raise HTTPException(status_code=400, detail=f"Missing required columns: {', '.join(missing)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required columns: {', '.join(missing)}"
+        )
 
     for extra_col in ["source_type", "source_file", "source_page", "source_chunk"]:
         if extra_col not in df.columns:
@@ -190,7 +184,7 @@ def sync_reviewed_rfis():
 
 @app.post("/search")
 def search_rfis(query: RFIQuery):
-    return retriever.search(
+    result = retriever.search(
         subject=query.subject,
         question_text=query.question_text,
         top_k=query.top_k,
@@ -198,6 +192,7 @@ def search_rfis(query: RFIQuery):
         spec_section=query.spec_section,
         project_name=query.project_name,
     )
+    return result
 
 
 @app.post("/generate")
@@ -225,9 +220,7 @@ def generate_response(query: RFIQuery):
         "draft_response": draft,
         "similar_rfis": retrieval.get("results", []),
         "duplicate_warning": retrieval.get("duplicate_warning"),
-        "duplicate_candidates": retrieval.get("duplicate_candidates", []),
         "overall_confidence": retrieval.get("overall_confidence", "Low"),
-        "confidence_score": retrieval.get("confidence_score", 0.0),
         "safeguards": retrieval.get("safeguards", []),
         "retrieval_count": len(retrieval.get("results", [])),
         "candidate_count": retrieval.get("candidate_count", len(retrieval.get("results", []))),
@@ -248,7 +241,6 @@ def submit_feedback(payload: FeedbackPayload):
         action=payload.action,
         overall_confidence=payload.overall_confidence,
         duplicate_warning=payload.duplicate_warning,
-        confidence_score=payload.confidence_score,
     )
 
     added_to_dataset = 0
@@ -284,40 +276,6 @@ def submit_feedback(payload: FeedbackPayload):
     return {
         "message": "Feedback saved successfully.",
         "added_to_dataset": added_to_dataset,
-    }
-
-
-@app.post("/workflow")
-def create_workflow(payload: WorkflowCreatePayload):
-    item_id = create_workflow_item(
-        subject=payload.subject,
-        question_text=payload.question_text,
-        generated_draft=payload.generated_draft,
-        final_draft=payload.final_draft,
-        trade=payload.trade,
-        spec_section=payload.spec_section,
-        project_name=payload.project_name,
-        overall_confidence=payload.overall_confidence,
-        confidence_score=payload.confidence_score,
-        duplicate_warning=payload.duplicate_warning,
-        status=payload.status,
-    )
-    return {"message": "Workflow item created.", "workflow_id": item_id}
-
-
-@app.post("/workflow/{item_id}/status")
-def set_workflow_status(item_id: int, payload: WorkflowStatusPayload):
-    updated = update_workflow_status(item_id, payload.status, payload.final_draft)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Workflow item not found.")
-    return {"message": "Workflow status updated.", "workflow_id": item_id, "status": payload.status}
-
-
-@app.get("/workflow")
-def get_workflow(status: str = None, limit: int = 200):
-    return {
-        "items": list_workflow_items(status=status, limit=limit),
-        "summary": get_workflow_summary(),
     }
 
 

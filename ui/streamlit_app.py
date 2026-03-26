@@ -1,624 +1,666 @@
-import pandas as pd
 import requests
 import streamlit as st
 
 API_URL = "http://127.0.0.1:8000"
 
-st.set_page_config(page_title="Smart RFI Assistant", layout="wide")
-
-PRIMARY_NAVY = "#143A5B"
-PRIMARY_NAVY_DARK = "#0D2942"
-PRIMARY_NAVY_MID = "#1F4D73"
-ACCENT_ORANGE = "#F28C28"
-BG = "#F5F7FA"
-CARD = "#FFFFFF"
-TEXT = "#1F2937"
-MUTED = "#6B7280"
-BORDER = "#D9E2EC"
-WARN = "#B45309"
-SOFT_BLUE = "#EAF2FB"
-
-st.markdown(
-    f"""
-    <style>
-        .stApp {{
-            background: linear-gradient(180deg, {BG} 0%, #EEF2F7 100%);
-            color: {TEXT};
-        }}
-
-        .main .block-container {{
-            max-width: 1320px;
-            padding-top: 1.5rem;
-            padding-bottom: 2rem;
-        }}
-
-        h1, h2, h3 {{
-            color: {PRIMARY_NAVY_DARK};
-            letter-spacing: -0.02em;
-        }}
-
-        p, span, div, label {{
-            color: {TEXT};
-        }}
-
-        .stMarkdown, .stText, .stCaption {{
-            color: {TEXT} !important;
-        }}
-
-        [data-testid="stMarkdownContainer"] p,
-        [data-testid="stMarkdownContainer"] li,
-        [data-testid="stMarkdownContainer"] span,
-        [data-testid="stSidebar"] * {{
-            color: {TEXT};
-        }}
-
-        .stAlert p, .stAlert div {{
-            color: {TEXT} !important;
-        }}
-
-        /* Better text selection contrast */
-        ::selection {{
-            background: #CFE3FA;
-            color: {PRIMARY_NAVY_DARK};
-        }}
-
-        /* Hero */
-        .hero {{
-            background: linear-gradient(135deg, {PRIMARY_NAVY_DARK} 0%, {PRIMARY_NAVY} 55%, {PRIMARY_NAVY_MID} 100%);
-            border-radius: 18px;
-            padding: 1.35rem 1.5rem;
-            color: white;
-            box-shadow: 0 12px 28px rgba(13, 41, 66, 0.20);
-            margin-bottom: 1rem;
-            border: 1px solid rgba(255,255,255,0.08);
-        }}
-
-        .hero-title {{
-            font-size: 2rem;
-            font-weight: 800;
-            margin-bottom: 0.35rem;
-            letter-spacing: -0.03em;
-            color: white !important;
-        }}
-
-        .hero-subtitle {{
-            font-size: 0.98rem;
-            color: rgba(255,255,255,0.86) !important;
-            line-height: 1.5;
-            margin-bottom: 0.9rem;
-        }}
-
-        .hero-pill-row {{
-            display: flex;
-            gap: 0.6rem;
-            flex-wrap: wrap;
-        }}
-
-        .hero-pill {{
-            background: rgba(255,255,255,0.10);
-            border: 1px solid rgba(255,255,255,0.16);
-            color: white !important;
-            border-radius: 999px;
-            padding: 0.38rem 0.8rem;
-            font-size: 0.82rem;
-            font-weight: 600;
-        }}
-
-        /* Cards */
-        .kahua-card {{
-            background: {CARD};
-            border: 1px solid {BORDER};
-            border-radius: 16px;
-            padding: 1rem 1rem 0.8rem 1rem;
-            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
-            margin-bottom: 1rem;
-        }}
-
-        .card-title {{
-            color: {PRIMARY_NAVY_DARK} !important;
-            font-weight: 800;
-            font-size: 1rem;
-            margin-bottom: 0.25rem;
-        }}
-
-        .card-subtitle {{
-            color: {MUTED} !important;
-            font-size: 0.9rem;
-            margin-bottom: 0.4rem;
-        }}
-
-        .field-label {{
-            color: {PRIMARY_NAVY_DARK};
-            font-weight: 800;
-            font-size: 0.95rem;
-            margin-bottom: 0.35rem;
-            margin-top: 0.2rem;
-        }}
-
-        .field-help {{
-            color: {MUTED};
-            font-size: 0.85rem;
-            margin-bottom: 0.55rem;
-        }}
-
-        /* Buttons */
-        .stButton > button {{
-            background: linear-gradient(180deg, {ACCENT_ORANGE} 0%, #E6790C 100%);
-            color: white !important;
-            border: none;
-            border-radius: 12px;
-            font-weight: 700;
-            padding: 0.65rem 1rem;
-            box-shadow: 0 8px 18px rgba(242, 140, 40, 0.25);
-        }}
-
-        .stButton > button:hover,
-        .stButton > button:focus,
-        .stButton > button:focus-visible {{
-            background: linear-gradient(180deg, #FF9A34 0%, {ACCENT_ORANGE} 100%);
-            color: white !important;
-            border: none !important;
-            outline: none !important;
-            box-shadow: 0 0 0 0.18rem rgba(242, 140, 40, 0.22) !important;
-        }}
-
-        /* Inputs */
-        .stTextInput label,
-        .stTextArea label,
-        .stSelectbox label,
-        .stSlider label {{
-            color: {PRIMARY_NAVY_DARK} !important;
-            font-weight: 700 !important;
-        }}
-
-        .stTextInput input,
-        .stTextArea textarea,
-        .stSelectbox div[data-baseweb="select"] > div {{
-            border-radius: 12px !important;
-            border: 1px solid {BORDER} !important;
-            background: white !important;
-            color: {TEXT} !important;
-        }}
-
-        .stTextInput input:focus,
-        .stTextArea textarea:focus {{
-            border: 1px solid #9FC2E8 !important;
-            box-shadow: 0 0 0 0.18rem rgba(31, 77, 115, 0.10) !important;
-            color: {TEXT} !important;
-        }}
-
-        .stTextInput input::placeholder,
-        .stTextArea textarea::placeholder {{
-            color: #94A3B8 !important;
-        }}
-
-        /* Baseweb selected/focused states */
-        div[data-baseweb="select"] * {{
-            color: {TEXT} !important;
-        }}
-
-        div[data-baseweb="select"] > div:focus-within {{
-            border-color: #9FC2E8 !important;
-            box-shadow: 0 0 0 0.18rem rgba(31, 77, 115, 0.10) !important;
-        }}
-
-        /* Sidebar */
-        section[data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, #EEF3F8 0%, #E7EEF6 100%);
-            border-right: 1px solid {BORDER};
-        }}
-
-        section[data-testid="stSidebar"] h1,
-        section[data-testid="stSidebar"] h2,
-        section[data-testid="stSidebar"] h3,
-        section[data-testid="stSidebar"] label,
-        section[data-testid="stSidebar"] p,
-        section[data-testid="stSidebar"] div {{
-            color: {PRIMARY_NAVY_DARK} !important;
-        }}
-
-        /* Tabs */
-        button[data-baseweb="tab"] {{
-            border-radius: 999px !important;
-            padding: 0.45rem 0.95rem !important;
-            font-weight: 700 !important;
-            color: {PRIMARY_NAVY_DARK} !important;
-            background: #F2F6FA !important;
-        }}
-
-        button[data-baseweb="tab"]:hover {{
-            background: #E7EEF6 !important;
-            color: {PRIMARY_NAVY_DARK} !important;
-        }}
-
-        button[data-baseweb="tab"][aria-selected="true"] {{
-            background: {PRIMARY_NAVY} !important;
-            color: white !important;
-        }}
-
-        button[data-baseweb="tab"][aria-selected="true"] * {{
-            color: white !important;
-        }}
-
-        /* Streamlit radio/segmented/toggle-like selected chips */
-        [role="radiogroup"] label,
-        [role="radiogroup"] div {{
-            color: {TEXT} !important;
-        }}
-
-        /* Expanders */
-        .streamlit-expanderHeader {{
-            font-weight: 700;
-            color: {PRIMARY_NAVY_DARK} !important;
-        }}
-
-        /* Alerts */
-        div[data-testid="stAlert"] {{
-            border-radius: 14px;
-            border: 1px solid {BORDER};
-        }}
-
-        /* Dataframes */
-        div[data-testid="stDataFrame"] {{
-            background: white;
-            border: 1px solid {BORDER};
-            border-radius: 14px;
-            padding: 0.25rem;
-        }}
-
-        div[data-testid="stDataFrame"] * {{
-            color: {TEXT} !important;
-        }}
-
-        /* Tables / dataframe selected headers */
-        thead tr th {{
-            background: {SOFT_BLUE} !important;
-            color: {PRIMARY_NAVY_DARK} !important;
-        }}
-
-        tbody tr td {{
-            background: white !important;
-            color: {TEXT} !important;
-        }}
-
-        /* Chips */
-        .stat-chip {{
-            display: inline-block;
-            background: #FFF4E8;
-            color: {WARN} !important;
-            border: 1px solid #F8D2A8;
-            border-radius: 999px;
-            padding: 0.25rem 0.6rem;
-            font-size: 0.78rem;
-            font-weight: 700;
-            margin-right: 0.45rem;
-            margin-bottom: 0.35rem;
-        }}
-    </style>
-    """,
-    unsafe_allow_html=True,
+st.set_page_config(
+    page_title="Smart RFI Assistant",
+    page_icon="🏗️",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-st.markdown(
-    """
-    <div class="hero">
-        <div class="hero-title">Smart RFI Assistant</div>
-        <div class="hero-subtitle">
-            Search historical RFIs, surface recurring issue patterns, and generate grounded draft responses
-            in a secure, analytics-forward workflow.
-        </div>
-        <div class="hero-pill-row">
-            <span class="hero-pill">Historical Retrieval</span>
-            <span class="hero-pill">Duplicate Detection</span>
-            <span class="hero-pill">Issue Analytics</span>
-            <span class="hero-pill">Draft Response Support</span>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+st.markdown("""
+<style>
+:root {
+    --kahua-orange: #F58220;
+    --kahua-orange-dark: #D96A10;
+    --kahua-blue: #163A63;
+    --kahua-blue-2: #224E7A;
+    --kahua-bg: #F7F8FA;
+    --kahua-card: #FFFFFF;
+    --kahua-border: #E5E7EB;
+    --kahua-text: #163A63;
+    --kahua-muted: #667085;
+    --kahua-success: #13795B;
+    --kahua-warning-bg: #FFF7ED;
+    --kahua-warning-border: #FDBA74;
+}
 
-try:
-    filters_resp = requests.get(f"{API_URL}/filters", timeout=10)
-    filter_data = filters_resp.json() if filters_resp.status_code == 200 else {}
-except Exception:
-    filter_data = {}
+html, body, [class*="css"] {
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
 
-trades = [""] + filter_data.get("trades", [])
-projects = [""] + filter_data.get("projects", [])
-spec_sections = [""] + filter_data.get("spec_sections", [])
+.block-container {
+    padding-top: 1.5rem;
+    padding-bottom: 2rem;
+    max-width: 1450px;
+}
 
-tab1, tab2, tab3 = st.tabs(["RFI Assistant", "Common Issues Dashboard", "Upload RFIs CSV"])
+h1, h2, h3 {
+    color: var(--kahua-blue);
+    letter-spacing: -0.01em;
+}
 
-with tab1:
+div[data-testid="stMetric"] {
+    background: white;
+    border: 1px solid var(--kahua-border);
+    border-radius: 16px;
+    padding: 0.9rem 1rem;
+}
+
+.stButton > button {
+    width: 100%;
+    border-radius: 12px;
+    border: 1px solid var(--kahua-orange);
+    background: var(--kahua-orange);
+    color: white;
+    font-weight: 700;
+    min-height: 2.8rem;
+}
+
+.stButton > button:hover {
+    background: var(--kahua-orange-dark);
+    border-color: var(--kahua-orange-dark);
+    color: white;
+}
+
+div[data-baseweb="select"] > div,
+div[data-baseweb="input"] > div,
+div[data-baseweb="textarea"] > div {
+    border-radius: 12px !important;
+}
+
+.hero {
+    background: linear-gradient(135deg, #163A63 0%, #224E7A 58%, #F58220 160%);
+    color: white;
+    border-radius: 22px;
+    padding: 1.35rem 1.5rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 14px 34px rgba(22, 58, 99, 0.18);
+}
+
+.hero h1 {
+    color: white !important;
+    font-size: 2rem;
+    margin-bottom: 0.35rem;
+}
+
+.hero p {
+    margin: 0;
+    color: rgba(255,255,255,0.92);
+}
+
+.card {
+    background: var(--kahua-card);
+    border: 1px solid var(--kahua-border);
+    border-radius: 18px;
+    padding: 1rem 1rem 0.9rem 1rem;
+    box-shadow: 0 8px 24px rgba(16, 24, 40, 0.05);
+    margin-bottom: 1rem;
+}
+
+.card-tight {
+    background: var(--kahua-card);
+    border: 1px solid var(--kahua-border);
+    border-radius: 16px;
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.section-label {
+    display: inline-block;
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: var(--kahua-orange);
+    text-transform: uppercase;
+    margin-bottom: 0.35rem;
+}
+
+.step-chip-wrap {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 0.25rem 0 1rem 0;
+}
+
+.step-chip {
+    background: white;
+    border: 1px solid var(--kahua-border);
+    border-radius: 999px;
+    padding: 0.6rem 0.95rem;
+    color: var(--kahua-blue);
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.note-box {
+    background: #F8FAFC;
+    border: 1px solid var(--kahua-border);
+    border-radius: 14px;
+    padding: 0.85rem 1rem;
+    color: var(--kahua-muted);
+    margin-bottom: 0.9rem;
+}
+
+.warning-box {
+    background: var(--kahua-warning-bg);
+    border: 1px solid var(--kahua-warning-border);
+    border-radius: 14px;
+    padding: 0.85rem 1rem;
+    color: #9A3412;
+    margin-bottom: 0.8rem;
+}
+
+.good-box {
+    background: #ECFDF3;
+    border: 1px solid #ABEFC6;
+    border-radius: 14px;
+    padding: 0.8rem 1rem;
+    color: #067647;
+    margin-bottom: 0.8rem;
+}
+
+.small-muted {
+    color: var(--kahua-muted);
+    font-size: 0.92rem;
+}
+
+.divider-space {
+    height: 0.35rem;
+}
+
+.sidebar-title {
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--kahua-blue);
+    margin-bottom: 0.4rem;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid var(--kahua-border);
+    margin: 1rem 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+def safe_get(url, params=None, timeout=10):
+    try:
+        response = requests.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        st.error(f"Could not load data: {e}")
+        return None
+
+
+def safe_post(url, payload=None, files=None, timeout=60):
+    try:
+        if files is not None:
+            response = requests.post(url, files=files, timeout=timeout)
+        else:
+            response = requests.post(url, json=payload, timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        st.error(f"Request failed: {e}")
+        return None
+
+
+def status_badge(text: str):
+    color = "#163A63"
+    bg = "#EFF4FF"
+    border = "#B2DDFF"
+
+    t = (text or "").lower()
+    if "high" in t or "approved" in t:
+        color, bg, border = "#067647", "#ECFDF3", "#ABEFC6"
+    elif "medium" in t or "review" in t:
+        color, bg, border = "#9A3412", "#FFF7ED", "#FDBA74"
+    elif "low" in t or "rejected" in t:
+        color, bg, border = "#B42318", "#FEF3F2", "#FECDCA"
+
     st.markdown(
-        """
-        <div class="kahua-card">
-            <div class="card-title">RFI Workflow Assistant</div>
-            <div class="card-subtitle">
-                Retrieve similar historical RFIs, flag duplicates, and generate a suggested draft response.
-            </div>
-        </div>
+        f"""
+        <div style="
+            display:inline-block;
+            padding:0.32rem 0.68rem;
+            border-radius:999px;
+            border:1px solid {border};
+            background:{bg};
+            color:{color};
+            font-weight:700;
+            font-size:0.82rem;
+            margin-bottom:0.25rem;
+        ">{text}</div>
         """,
         unsafe_allow_html=True,
     )
 
-    with st.sidebar:
-        st.header("Filters")
-        selected_trade = st.selectbox("Trade", trades)
-        selected_project = st.selectbox("Project", projects)
-        selected_spec = st.selectbox("Spec Section", spec_sections)
-        top_k = st.slider("Number of similar RFIs", min_value=1, max_value=5, value=3)
 
-    col_a, col_b = st.columns([1.35, 1])
+health = safe_get(f"{API_URL}/health")
+if not health:
+    st.stop()
 
-    with col_a:
-        st.markdown('<div class="kahua-card">', unsafe_allow_html=True)
+filters = safe_get(f"{API_URL}/filters") or {"trades": [], "projects": [], "spec_sections": []}
+dataset_info = safe_get(f"{API_URL}/dataset-info") or {}
+dashboard = safe_get(f"{API_URL}/dashboard") or {}
+workflow_data = safe_get(f"{API_URL}/workflow") or {"items": [], "summary": {}}
 
-        st.markdown('<div class="field-label">RFI Subject</div>', unsafe_allow_html=True)
-        st.markdown('<div class="field-help">Enter a short title for the new RFI.</div>', unsafe_allow_html=True)
-        subject = st.text_input(
-            "RFI Subject",
-            label_visibility="collapsed",
-            placeholder="Example: Rebar spacing conflict at shear wall"
-        )
+if "latest_result" not in st.session_state:
+    st.session_state.latest_result = None
+if "latest_payload" not in st.session_state:
+    st.session_state.latest_payload = None
 
-        st.markdown('<div class="field-label">RFI Question</div>', unsafe_allow_html=True)
-        st.markdown('<div class="field-help">Paste or type the full field question that needs a response.</div>', unsafe_allow_html=True)
-        question_text = st.text_area(
-            "RFI Question",
-            height=240,
-            label_visibility="collapsed",
-            placeholder="Example: Please confirm required rebar spacing because the structural and architectural drawings appear inconsistent."
+st.markdown("""
+<div class="hero">
+    <h1>Smart RFI Assistant</h1>
+    <p>Search past RFIs, review the best evidence, and generate a draft response your team can approve quickly.</p>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="step-chip-wrap">
+    <div class="step-chip">1. Enter the issue</div>
+    <div class="step-chip">2. Review matching RFIs</div>
+    <div class="step-chip">3. Approve, edit, or send to review</div>
+</div>
+""", unsafe_allow_html=True)
+
+with st.sidebar:
+    st.markdown('<div class="sidebar-title">Search Options</div>', unsafe_allow_html=True)
+    st.caption("Use filters only when you want to narrow results to a specific trade, project, or spec section.")
+
+    trade = st.selectbox("Trade", ["Any"] + filters.get("trades", []))
+    project_name = st.selectbox("Project", ["Any"] + filters.get("projects", []))
+    spec_section = st.selectbox("Spec Section", ["Any"] + filters.get("spec_sections", []))
+    top_k = st.slider("Number of similar RFIs", 1, 5, 3)
+
+    ai_available = bool(health.get("ai_available", False))
+    use_ai = st.checkbox("Use AI drafting", value=False, disabled=not ai_available)
+
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-title">System Status</div>', unsafe_allow_html=True)
+    st.caption(f"RFIs loaded: {dataset_info.get('row_count', 0)}")
+    st.caption(f"Search engine: {health.get('retrieval_engine', 'hybrid-faiss-rerank-cited')}")
+    st.caption(f"Index: {health.get('index_status', 'unknown')}")
+    st.caption("Recommended workflow: search first, then review the top matches before approving a draft.")
+
+    with st.expander("Add project data"):
+        uploaded_csv = st.file_uploader("Upload RFI CSV", type=["csv"], key="csv_uploader")
+        if uploaded_csv is not None and st.button("Upload CSV"):
+            files = {"file": (uploaded_csv.name, uploaded_csv.getvalue(), "text/csv")}
+            data = safe_post(f"{API_URL}/upload-csv", files=files, timeout=30)
+            if data:
+                st.success(f"CSV uploaded. Rows: {data.get('row_count', 0)}")
+                st.rerun()
+
+        uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"], key="pdf_uploader")
+        if uploaded_pdf is not None and st.button("Upload PDF"):
+            files = {"file": (uploaded_pdf.name, uploaded_pdf.getvalue(), "application/pdf")}
+            data = safe_post(f"{API_URL}/upload-pdf", files=files, timeout=90)
+            if data:
+                st.success(f"PDF processed. Added rows: {data.get('added_rows', 0)}")
+                st.rerun()
+
+        if st.button("Sync approved drafts into dataset"):
+            data = safe_post(f"{API_URL}/sync-reviewed-rfis", {})
+            if data:
+                st.success(f"Synced. Added rows: {data.get('added_rows', 0)}")
+                st.rerun()
+
+assistant_tab, workflow_tab, analytics_tab = st.tabs(["Assistant", "Workflow", "Analytics"])
+
+with assistant_tab:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">Step 1</div>', unsafe_allow_html=True)
+    st.subheader("Describe the issue")
+
+    st.markdown("""
+    <div class="note-box">
+        Enter a short subject and the field question. Then click <b>Generate Draft Response</b>.
+        The assistant will show the best historical matches first so the user can understand why the draft was created.
+    </div>
+    """, unsafe_allow_html=True)
+
+    subject = st.text_input(
+        "Subject",
+        placeholder="Example: Door frame clearance at corridor wall"
+    )
+
+    question_text = st.text_area(
+        "Question",
+        placeholder="Describe the issue, conflict, or clarification needed...",
+        height=160
+    )
+
+    payload = {
+        "subject": subject.strip(),
+        "question_text": question_text.strip(),
+        "top_k": top_k,
+        "trade": None if trade == "Any" else trade,
+        "project_name": None if project_name == "Any" else project_name,
+        "spec_section": None if spec_section == "Any" else spec_section,
+        "use_ai": bool(use_ai and ai_available),
+    }
+
+    st.markdown('<div class="small-muted">Tip: leave filters on “Any” unless you know you only want results from one part of the project.</div>', unsafe_allow_html=True)
+
+    if st.button("Generate Draft Response", use_container_width=True):
+        if not payload["subject"] or not payload["question_text"]:
+            st.warning("Please enter both a subject and a question.")
+        else:
+            result = safe_post(f"{API_URL}/generate", payload)
+            if result:
+                st.session_state.latest_result = result
+                st.session_state.latest_payload = payload
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    result = st.session_state.latest_result
+    saved_payload = st.session_state.latest_payload
+
+    if result and saved_payload:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Step 2</div>', unsafe_allow_html=True)
+        st.subheader("Review the draft and supporting RFIs")
+
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            st.metric("Confidence", result.get("overall_confidence", "Low"))
+        with m2:
+            st.metric("Confidence Score", f"{result.get('confidence_score', 0.0)}%")
+        with m3:
+            st.metric("Matches Used", result.get("retrieval_count", 0))
+        with m4:
+            st.metric("Candidates Reviewed", result.get("candidate_count", 0))
+
+        if result.get("duplicate_warning"):
+            st.markdown(f'<div class="warning-box"><b>Duplicate Check:</b> {result["duplicate_warning"]}</div>', unsafe_allow_html=True)
+
+        safeguards = result.get("safeguards", [])
+        if safeguards:
+            for item in safeguards:
+                st.markdown(f'<div class="note-box">{item}</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="divider-space"></div>', unsafe_allow_html=True)
+        st.markdown("#### Draft response")
+        edited_draft = st.text_area(
+            "Edit before approval if needed",
+            value=result.get("draft_response", ""),
+            height=260,
+            key="edited_draft_clean_ui"
         )
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-    with col_b:
-        st.markdown(
-            """
-            <div class="kahua-card">
-                <div class="card-title">How this helps</div>
-                <div class="card-subtitle">Built to reduce repetitive work and improve response consistency.</div>
-                <span class="stat-chip">Hybrid retrieval</span>
-                <span class="stat-chip">SVD semantic search</span>
-                <span class="stat-chip">Human review required</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Step 2A</div>', unsafe_allow_html=True)
+        st.subheader("Why this answer was suggested")
 
-    payload = {
-        "subject": subject,
-        "question_text": question_text,
-        "top_k": top_k,
-        "trade": selected_trade or None,
-        "project_name": selected_project or None,
-        "spec_section": selected_spec or None,
-    }
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("Find Similar RFIs", use_container_width=True):
-            try:
-                response = requests.post(f"{API_URL}/search", json=payload, timeout=30)
-                if response.status_code == 200:
-                    data = response.json()
-
-                    st.markdown(
-                        """
-                        <div class="kahua-card">
-                            <div class="card-title">Retrieval Summary</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    st.write(f"**Overall Confidence:** {data.get('overall_confidence', 'Low')}")
-
-                    if data.get("duplicate_warning"):
-                        st.warning(data["duplicate_warning"])
-
-                    for safeguard in data.get("safeguards", []):
-                        st.info(safeguard)
-
-                    st.markdown(
-                        """
-                        <div class="kahua-card">
-                            <div class="card-title">Similar Historical RFIs</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                    if not data.get("results"):
-                        st.warning("No similar RFIs found.")
-
-                    for item in data.get("results", []):
-                        with st.expander(
-                            f"RFI #{item['rfi_id']} • {item['subject']} • score={item['similarity_score']:.3f} • {item['confidence']}"
-                        ):
-                            if item.get("project_name"):
-                                st.write(f"**Project:** {item['project_name']}")
-                            st.write(f"**Trade:** {item['trade']}")
-                            st.write(f"**Spec Section:** {item['spec_section']}")
-                            st.write(f"**Question:** {item['question_text']}")
-                            st.write(f"**Response:** {item['response_text']}")
-                else:
-                    st.error("Search request failed.")
-            except Exception as e:
-                st.error(f"Search request failed: {e}")
-
-    with col2:
-        if st.button("Generate Draft Response", use_container_width=True):
-            try:
-                response = requests.post(f"{API_URL}/generate", json=payload, timeout=60)
-                if response.status_code == 200:
-                    data = response.json()
-
-                    st.markdown(
-                        """
-                        <div class="kahua-card">
-                            <div class="card-title">Draft Summary</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    st.write(f"**Overall Confidence:** {data.get('overall_confidence', 'Low')}")
-
-                    if data.get("duplicate_warning"):
-                        st.warning(data["duplicate_warning"])
-
-                    for safeguard in data.get("safeguards", []):
-                        st.info(safeguard)
-
-                    st.markdown(
-                        """
-                        <div class="kahua-card">
-                            <div class="card-title">Suggested Draft Response</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    st.text_area("Draft", data["draft_response"], height=320)
-
-                    st.markdown(
-                        """
-                        <div class="kahua-card">
-                            <div class="card-title">Source RFIs Used</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-
-                    if not data.get("similar_rfis"):
-                        st.warning("No source RFIs were found.")
-
-                    for item in data.get("similar_rfis", []):
-                        st.write(
-                            f"- RFI #{item['rfi_id']}: {item['subject']} "
-                            f"({item['trade']}, {item['spec_section']}, "
-                            f"score={item['similarity_score']:.3f}, confidence={item['confidence']})"
-                        )
-                else:
-                    st.error("Generation request failed.")
-            except Exception as e:
-                st.error(f"Generation request failed: {e}")
-
-with tab2:
-    st.markdown(
-        """
-        <div class="kahua-card">
-            <div class="card-title">Common Issues Dashboard</div>
-            <div class="card-subtitle">
-                Spot repeated issue themes, high-friction trades, and recurring spec sections across RFIs.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    try:
-        response = requests.get(f"{API_URL}/dashboard", timeout=30)
-        if response.status_code != 200:
-            st.error("Failed to load dashboard data.")
+        similar_rfis = result.get("similar_rfis", [])
+        if not similar_rfis:
+            st.markdown('<div class="warning-box">No similar RFIs were returned for this search.</div>', unsafe_allow_html=True)
         else:
-            data = response.json()
+            for idx, rfi in enumerate(similar_rfis, start=1):
+                with st.expander(f"Match {idx}: RFI {rfi.get('rfi_id', '')} — {rfi.get('subject', 'No Subject')}", expanded=(idx == 1)):
+                    left, right = st.columns([1, 1])
 
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.markdown('<div class="kahua-card"><div class="card-title">Top Trades</div>', unsafe_allow_html=True)
-                st.dataframe(pd.DataFrame(data.get("top_trades", [])), use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-            with c2:
-                st.markdown('<div class="kahua-card"><div class="card-title">Top Spec Sections</div>', unsafe_allow_html=True)
-                st.dataframe(pd.DataFrame(data.get("top_spec_sections", [])), use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-            with c3:
-                st.markdown('<div class="kahua-card"><div class="card-title">Repeated Subjects</div>', unsafe_allow_html=True)
-                st.dataframe(pd.DataFrame(data.get("top_subjects", [])), use_container_width=True)
-                st.markdown("</div>", unsafe_allow_html=True)
+                    with left:
+                        st.markdown("**New incoming RFI**")
+                        st.markdown(f"**Subject**  \n{saved_payload['subject']}")
+                        st.markdown("**Question**")
+                        st.write(saved_payload["question_text"])
 
-            st.markdown('<div class="kahua-card"><div class="card-title">Issue Cluster Summary</div>', unsafe_allow_html=True)
-            st.dataframe(pd.DataFrame(data.get("cluster_summary", [])), use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+                    with right:
+                        st.markdown("**Historical RFI used**")
+                        st.markdown(f"**RFI ID**  \n{rfi.get('rfi_id', '')}")
+                        st.markdown(f"**Subject**  \n{rfi.get('subject', '')}")
+                        st.markdown("**Historical Question**")
+                        st.write(rfi.get("question_text", ""))
 
-            st.markdown('<div class="kahua-card"><div class="card-title">Issue Cluster Details</div></div>', unsafe_allow_html=True)
-            for cluster in data.get("cluster_details", []):
-                with st.expander(f"Cluster {cluster['cluster_id']} ({cluster['count']} RFIs)"):
-                    st.dataframe(pd.DataFrame(cluster["items"]), use_container_width=True)
+                    c1, c2, c3, c4 = st.columns(4)
+                    with c1:
+                        status_badge(rfi.get("confidence", ""))
+                    with c2:
+                        st.caption(f"Score: {rfi.get('similarity_score', '')}")
+                    with c3:
+                        st.caption(f"Trade: {rfi.get('trade', '') or '—'}")
+                    with c4:
+                        st.caption(f"Spec: {rfi.get('spec_section', '') or '—'}")
 
-    except Exception as e:
-        st.error(f"Dashboard request failed: {e}")
+                    st.markdown("**Historical response**")
+                    st.write(rfi.get("response_text", ""))
 
-with tab3:
-    st.markdown(
-        """
-        <div class="kahua-card">
-            <div class="card-title">Upload Historical RFIs</div>
-            <div class="card-subtitle">
-                Replace the current dataset used by retrieval, drafting, and issue analytics.
-            </div>
+                    st.markdown("**Source citation**")
+                    citation = rfi.get("source_citation", "")
+                    if citation:
+                        st.code(citation)
+                    else:
+                        st.write("No source citation available.")
+
+                    reasons = rfi.get("match_reasons", [])
+                    if reasons:
+                        st.markdown("**Why it matched**")
+                        for reason in reasons:
+                            st.write(f"- {reason}")
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Step 3</div>', unsafe_allow_html=True)
+        st.subheader("Choose what to do next")
+
+        st.markdown("""
+        <div class="good-box">
+            <b>Recommended use:</b> approve when the draft is ready, save edited approval if you changed the wording,
+            or send to review when another team member should look at it before it is used.
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        """, unsafe_allow_html=True)
 
-    st.subheader("Required Columns")
-    st.markdown(
-        """
-        <div class="kahua-card">
-            <div class="card-title">CSV Schema</div>
-            <div class="card-subtitle">
-                rfi_id, project_name, trade, spec_section, subject, question_text, response_text
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+        base_workflow_payload = {
+            "subject": saved_payload["subject"],
+            "question_text": saved_payload["question_text"],
+            "generated_draft": result.get("draft_response", ""),
+            "final_draft": edited_draft,
+            "trade": saved_payload["trade"],
+            "spec_section": saved_payload["spec_section"],
+            "project_name": saved_payload["project_name"],
+            "overall_confidence": result.get("overall_confidence"),
+            "confidence_score": result.get("confidence_score"),
+            "duplicate_warning": result.get("duplicate_warning"),
+        }
 
-    try:
-        info_resp = requests.get(f"{API_URL}/dataset-info", timeout=10)
-        if info_resp.status_code == 200:
-            info = info_resp.json()
-            st.info(f"Current dataset: {info['row_count']} rows")
-            st.write("**Current columns:**")
-            st.write(", ".join(info["columns"]))
-    except Exception:
-        pass
+        wf1, wf2, wf3 = st.columns(3)
 
-    uploaded_file = st.file_uploader("Upload RFI CSV", type=["csv"])
+        with wf1:
+            if st.button("Send to Review"):
+                payload2 = dict(base_workflow_payload)
+                payload2["status"] = "under_review"
+                resp = safe_post(f"{API_URL}/workflow", payload2)
+                if resp:
+                    st.success(f"Sent to review. Workflow ID: {resp.get('workflow_id')}")
 
-    if uploaded_file is not None:
-        try:
-            preview_df = pd.read_csv(uploaded_file)
-            st.markdown(
-                """
-                <div class="kahua-card">
-                    <div class="card-title">Preview</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            st.dataframe(preview_df.head(10), use_container_width=True)
+        with wf2:
+            if st.button("Approve Draft"):
+                payload2 = dict(base_workflow_payload)
+                payload2["status"] = "approved"
+                resp = safe_post(f"{API_URL}/workflow", payload2)
+                if resp:
+                    st.success(f"Draft approved. Workflow ID: {resp.get('workflow_id')}")
 
-            uploaded_file.seek(0)
+        with wf3:
+            if st.button("Save Edited Approval"):
+                payload2 = dict(base_workflow_payload)
+                payload2["status"] = "edited_approved"
+                resp = safe_post(f"{API_URL}/workflow", payload2)
+                if resp:
+                    st.success(f"Edited approval saved. Workflow ID: {resp.get('workflow_id')}")
 
-            if st.button("Replace Current Dataset", use_container_width=True):
-                files = {
-                    "file": (uploaded_file.name, uploaded_file.getvalue(), "text/csv")
-                }
-                response = requests.post(f"{API_URL}/upload-csv", files=files, timeout=60)
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown("#### Save learning feedback")
 
-                if response.status_code == 200:
-                    data = response.json()
-                    st.success(data["message"])
-                    st.write(f"Rows loaded: {data['row_count']}")
-                    st.write("Reload the other tabs to use the new dataset.")
-                else:
-                    try:
-                        st.error(response.json().get("detail", "Upload failed."))
-                    except Exception:
-                        st.error("Upload failed.")
-        except Exception as e:
-            st.error(f"Could not preview file: {e}")
+        f1, f2, f3 = st.columns(3)
+        feedback_base = {
+            "subject": saved_payload["subject"],
+            "question_text": saved_payload["question_text"],
+            "generated_draft": result.get("draft_response", ""),
+            "final_draft": edited_draft,
+            "overall_confidence": result.get("overall_confidence"),
+            "confidence_score": result.get("confidence_score"),
+            "duplicate_warning": result.get("duplicate_warning"),
+            "trade": saved_payload["trade"],
+            "spec_section": saved_payload["spec_section"],
+            "project_name": saved_payload["project_name"],
+        }
+
+        with f1:
+            if st.button("Accept Draft"):
+                data = dict(feedback_base)
+                data["action"] = "accepted"
+                resp = safe_post(f"{API_URL}/feedback", data)
+                if resp:
+                    st.success(f"Accepted and saved. Added to dataset: {resp.get('added_to_dataset', 0)}")
+
+        with f2:
+            if st.button("Save Edited Draft"):
+                data = dict(feedback_base)
+                data["action"] = "edited"
+                resp = safe_post(f"{API_URL}/feedback", data)
+                if resp:
+                    st.success(f"Edited draft saved. Added to dataset: {resp.get('added_to_dataset', 0)}")
+
+        with f3:
+            if st.button("Reject Draft"):
+                data = dict(feedback_base)
+                data["action"] = "rejected"
+                resp = safe_post(f"{API_URL}/feedback", data)
+                if resp:
+                    st.success("Rejected draft recorded.")
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+with workflow_tab:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">Workflow Queue</div>', unsafe_allow_html=True)
+    st.subheader("Open items and recent approvals")
+
+    wf_summary = workflow_data.get("summary", {})
+    s1, s2 = st.columns(2)
+    with s1:
+        st.metric("Total Workflow Items", wf_summary.get("total_workflow_items", 0))
+    with s2:
+        st.metric("Avg Confidence", wf_summary.get("avg_confidence_score", "N/A"))
+
+    items = workflow_data.get("items", [])
+    if not items:
+        st.markdown('<div class="note-box">No workflow items yet. Create one from the Assistant tab after generating a draft.</div>', unsafe_allow_html=True)
+    else:
+        for item in items:
+            with st.expander(f"#{item.get('id')} | {item.get('status')} | {item.get('subject')}"):
+                status_badge(item.get("status", ""))
+                st.markdown(f"**Question**  \n{item.get('question_text', '')}")
+                st.markdown(f"**Confidence**  \n{item.get('overall_confidence', '')} ({item.get('confidence_score', '')})")
+
+                if item.get("duplicate_warning"):
+                    st.markdown(f'<div class="warning-box">{item["duplicate_warning"]}</div>', unsafe_allow_html=True)
+
+                st.markdown("**Generated Draft**")
+                st.write(item.get("generated_draft", ""))
+
+                if item.get("final_draft"):
+                    st.markdown("**Final Draft**")
+                    st.write(item.get("final_draft", ""))
+
+                u1, u2, u3, u4 = st.columns(4)
+                with u1:
+                    if st.button(f"Mark Review #{item['id']}"):
+                        resp = safe_post(
+                            f"{API_URL}/workflow/{item['id']}/status",
+                            {"status": "under_review"}
+                        )
+                        if resp:
+                            st.success("Updated.")
+                            st.rerun()
+                with u2:
+                    if st.button(f"Approve #{item['id']}"):
+                        resp = safe_post(
+                            f"{API_URL}/workflow/{item['id']}/status",
+                            {"status": "approved"}
+                        )
+                        if resp:
+                            st.success("Updated.")
+                            st.rerun()
+                with u3:
+                    if st.button(f"Edited Approve #{item['id']}"):
+                        resp = safe_post(
+                            f"{API_URL}/workflow/{item['id']}/status",
+                            {
+                                "status": "edited_approved",
+                                "final_draft": item.get("final_draft") or item.get("generated_draft")
+                            }
+                        )
+                        if resp:
+                            st.success("Updated.")
+                            st.rerun()
+                with u4:
+                    if st.button(f"Reject #{item['id']}"):
+                        resp = safe_post(
+                            f"{API_URL}/workflow/{item['id']}/status",
+                            {"status": "rejected"}
+                        )
+                        if resp:
+                            st.success("Updated.")
+                            st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with analytics_tab:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">Analytics</div>', unsafe_allow_html=True)
+    st.subheader("Usage and dataset summary")
+
+    metrics = dashboard.get("metrics", {})
+    a1, a2, a3, a4 = st.columns(4)
+    with a1:
+        st.metric("Dataset Rows", metrics.get("dataset_rows", 0))
+    with a2:
+        st.metric("Unique Projects", metrics.get("unique_projects", 0))
+    with a3:
+        st.metric("Unique Trades", metrics.get("unique_trades", 0))
+    with a4:
+        st.metric("Unique Spec Sections", metrics.get("unique_spec_sections", 0))
+
+    b1, b2, b3, b4 = st.columns(4)
+    with b1:
+        st.metric("Total Feedback", metrics.get("total_feedback", 0))
+    with b2:
+        st.metric("Reviewed RFIs", metrics.get("reviewed_rfis_count", 0))
+    with b3:
+        st.metric("Workflow Items", metrics.get("total_workflow_items", 0))
+    with b4:
+        st.metric("Avg Workflow Confidence", metrics.get("avg_workflow_confidence_score", "N/A"))
+
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.markdown("#### Top trades")
+        for item in dashboard.get("top_trades", [])[:10]:
+            st.markdown(f'<div class="card-tight"><b>{item.get("trade")}</b><br><span class="small-muted">{item.get("count")} RFIs</span></div>', unsafe_allow_html=True)
+
+        st.markdown("#### Workflow status counts")
+        for item in dashboard.get("workflow_summary", {}).get("status_counts", []):
+            st.markdown(f'<div class="card-tight"><b>{item.get("status")}</b><br><span class="small-muted">{item.get("count")} items</span></div>', unsafe_allow_html=True)
+
+    with col_right:
+        st.markdown("#### Top spec sections")
+        for item in dashboard.get("top_spec_sections", [])[:10]:
+            st.markdown(f'<div class="card-tight"><b>{item.get("spec_section")}</b><br><span class="small-muted">{item.get("count")} RFIs</span></div>', unsafe_allow_html=True)
+
+        st.markdown("#### Feedback actions")
+        for item in dashboard.get("feedback_summary", {}).get("action_counts", []):
+            st.markdown(f'<div class="card-tight"><b>{item.get("action")}</b><br><span class="small-muted">{item.get("count")} actions</span></div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)

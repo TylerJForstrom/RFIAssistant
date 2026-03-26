@@ -2,8 +2,6 @@ import os
 from typing import List, Dict
 from dotenv import load_dotenv
 
-from app.services.context_builder import build_structured_context
-
 try:
     from openai import OpenAI
 except Exception:
@@ -12,9 +10,7 @@ except Exception:
 load_dotenv()
 
 
-def generate_rule_based_draft(new_subject: str, new_question: str, similar_rfis: List[Dict], safeguards: List[str]) -> str:
-    context = build_structured_context(similar_rfis, safeguards)
-
+def generate_rule_based_draft(new_subject: str, new_question: str, similar_rfis: List[Dict]) -> str:
     if not similar_rfis:
         return (
             "Suggested Response:\n"
@@ -36,15 +32,12 @@ def generate_rule_based_draft(new_subject: str, new_question: str, similar_rfis:
         f"- Similarity Score: {best.get('similarity_score', '')}",
     ]
 
-    for reason in best.get("match_reasons", [])[:4]:
+    for reason in best.get("match_reasons", []):
         basis_lines.append(f"- {reason}")
-
-    if context.get("conflicts"):
-        basis_lines.append(f"- Potential context conflict count: {len(context['conflicts'])}")
 
     return (
         "Suggested Response:\n"
-        f"{context.get('top_answer', '').strip()}\n\n"
+        f"{best.get('response_text', '').strip()}\n\n"
         "Basis:\n"
         + "\n".join(basis_lines)
         + "\n\nConfidence:\n"
@@ -68,13 +61,29 @@ def generate_llm_draft(
     should_use_ai = use_ai and env_allows_ai and api_key_present and OpenAI is not None
 
     if not should_use_ai:
-        return generate_rule_based_draft(new_subject, new_question, similar_rfis, safeguards)
+        return generate_rule_based_draft(new_subject, new_question, similar_rfis)
 
     if not similar_rfis:
-        return generate_rule_based_draft(new_subject, new_question, similar_rfis, safeguards)
+        return generate_rule_based_draft(new_subject, new_question, similar_rfis)
 
     client = OpenAI()
-    structured_context = build_structured_context(similar_rfis, safeguards)
+
+    context_blocks = []
+    for i, rfi in enumerate(similar_rfis, start=1):
+        reasons = "\n".join(f"- {x}" for x in rfi.get("match_reasons", []))
+        context_blocks.append(
+            f"Example RFI {i}\n"
+            f"RFI ID: {rfi.get('rfi_id', '')}\n"
+            f"Project: {rfi.get('project_name', '')}\n"
+            f"Trade: {rfi.get('trade', '')}\n"
+            f"Spec Section: {rfi.get('spec_section', '')}\n"
+            f"Subject: {rfi.get('subject', '')}\n"
+            f"Question: {rfi.get('question_text', '')}\n"
+            f"Response: {rfi.get('response_text', '')}\n"
+            f"Similarity Score: {rfi.get('similarity_score', '')}\n"
+            f"Confidence: {rfi.get('confidence', '')}\n"
+            f"Match Reasons:\n{reasons}\n"
+        )
 
     system_prompt = (
         "You are assisting with draft construction RFI responses.\n"
@@ -82,7 +91,6 @@ def generate_llm_draft(
         "Do not invent dimensions, approvals, code requirements, drawing references, or commitments.\n"
         "Do not introduce new facts that are not supported by the retrieved RFIs.\n"
         "If the retrieved context is weak, say that more project-specific review is required.\n"
-        "Prefer concise, professional construction-language drafting.\n"
         "Return the response in exactly this format:\n\n"
         "Suggested Response:\n"
         "<draft>\n\n"
@@ -95,11 +103,15 @@ def generate_llm_draft(
         "- <verification reminder>\n"
     )
 
+    safeguard_text = "\n".join(f"- {s}" for s in safeguards) if safeguards else "- None"
+
     user_prompt = (
         f"New RFI Subject: {new_subject}\n"
         f"New RFI Question: {new_question}\n\n"
-        "Structured Retrieved Context:\n\n"
-        f"{structured_context['context_text']}\n"
+        "Retrieved historical RFIs:\n\n"
+        + "\n---\n".join(context_blocks)
+        + "\n\nSafeguards:\n"
+        + safeguard_text
     )
 
     try:
@@ -114,4 +126,4 @@ def generate_llm_draft(
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"[generate_draft] OpenAI draft failed, using fallback: {e}")
-        return generate_rule_based_draft(new_subject, new_question, similar_rfis, safeguards)
+        return generate_rule_based_draft(new_subject, new_question, similar_rfis)

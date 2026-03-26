@@ -12,6 +12,8 @@ from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from app.services.query_understanding import detect_query_intent
+from app.services.query_expansion import expand_query
 from app.services.rerank import rerank_results
 
 try:
@@ -123,7 +125,6 @@ class RFIRetriever:
 
     def _load_or_build_faiss_index(self):
         paths = self._faiss_paths()
-
         if os.path.exists(paths["index"]) and os.path.exists(paths["svd"]) and os.path.exists(paths["meta"]):
             try:
                 self.faiss_index = faiss.read_index(paths["index"])
@@ -203,10 +204,8 @@ class RFIRetriever:
 
         if str(row.get("source_file", "")).strip():
             page = str(row.get("source_page", "")).strip()
-            chunk = str(row.get("source_chunk", "")).strip()
-            location = f" page {page}" if page else ""
-            location += f" chunk {chunk}" if chunk else ""
-            reasons.append(f"Source evidence: {row['source_file']}{location}")
+            if page:
+                reasons.append(f"Source citation: {row['source_file']} page {page}")
 
         if word_score >= 0.65:
             reasons.append("Strong lexical similarity")
@@ -242,40 +241,7 @@ class RFIRetriever:
 
         return self._normalize(scores)
 
-    def search(
-        self,
-        subject: str,
-        question_text: str,
-        top_k: int = 3,
-        trade: Optional[str] = None,
-        spec_section: Optional[str] = None,
-        project_name: Optional[str] = None,
-    ) -> Dict:
-        query = f"{subject} {question_text}".strip()
-        filtered_df = self.df.copy()
-
-        if trade:
-            filtered_df = filtered_df[filtered_df["trade"].str.lower() == trade.lower()]
-        if spec_section:
-            filtered_df = filtered_df[self._safe_contains(filtered_df["spec_section"], spec_section)]
-        if project_name:
-            filtered_df = filtered_df[self._safe_contains(filtered_df["project_name"], project_name)]
-
-        if filtered_df.empty:
-            return {
-                "results": [],
-                "overall_confidence": "Low",
-                "confidence_score": 0.0,
-                "duplicate_warning": None,
-                "duplicate_candidates": [],
-                "safeguards": ["No RFIs matched the selected filters."],
-                "retrieval_engine": "hybrid-faiss-rerank-cited",
-                "index_status": self.index_status,
-                "candidate_count": 0,
-            }
-
-        idxs = filtered_df.index.tolist()
-
+    def _score_query_against_subset(self, query: str, filtered_df: pd.DataFrame, idxs: List[int], weights: Dict[str, float]) -> List[Dict]:
         word_query_vec = self.word_vectorizer.transform([query])
         word_scores_all = cosine_similarity(word_query_vec, self.word_matrix).flatten()
         word_scores = self._normalize(word_scores_all[idxs])
@@ -302,20 +268,102 @@ class RFIRetriever:
             except Exception as e:
                 print(f"[retrieve] embedding query failed: {e}")
 
-        combined = (
-            0.30 * word_scores +
-            0.10 * char_scores +
-            0.20 * svd_scores +
-            0.25 * faiss_scores +
-            0.15 * emb_scores
+        candidate_scores = (
+            float(weights["word"]) * word_scores
+            + float(weights["char"]) * char_scores
+            + float(weights["svd"]) * svd_scores
+            + float(weights["faiss"]) * faiss_scores
+            + float(weights["embedding"]) * emb_scores
         )
 
-        ranked_positions = np.argsort(combined)[::-1]
-        candidates = []
+        ranked_candidate_positions = np.argsort(candidate_scores)[::-1]
+        rows = []
+        for i in ranked_candidate_positions:
+            row = filtered_df.iloc[i]
+            score = float(candidate_scores[i])
 
-        for pos in ranked_positions:
-            row = filtered_df.iloc[pos]
-            score = float(combined[pos])
+            source_file = str(row.get("source_file", "")).strip()
+            source_page = str(row.get("source_page", "")).strip()
+            source_chunk = str(row.get("source_chunk", "")).strip()
+
+            rows.append({
+                "row_index": int(row.name),
+                "rfi_id": row["rfi_id"],
+                "project_name": row["project_name"],
+                "subject": row["subject"],
+                "question_text": row["question_text"],
+                "response_text": row["response_text"],
+                "trade": row["trade"],
+                "spec_section": row["spec_section"],
+                "source_type": row.get("source_type", ""),
+                "source_file": source_file,
+                "source_page": source_page,
+                "source_chunk": source_chunk,
+                "source_citation": (
+                    f"{source_file} | page {source_page} | chunk {source_chunk}"
+                    if source_file and source_page else ""
+                ),
+                "similarity_score": score,
+                "score_breakdown": {
+                    "word_tfidf": round(float(word_scores[i]), 4),
+                    "char_tfidf": round(float(char_scores[i]), 4),
+                    "svd_semantic": round(float(svd_scores[i]), 4),
+                    "faiss_semantic": round(float(faiss_scores[i]), 4),
+                    "embedding": round(float(emb_scores[i]), 4),
+                },
+            })
+        return rows
+
+    def search(
+        self,
+        subject: str,
+        question_text: str,
+        top_k: int = 3,
+        trade: Optional[str] = None,
+        spec_section: Optional[str] = None,
+        project_name: Optional[str] = None,
+    ) -> Dict:
+        base_query = f"{subject} {question_text}".strip()
+        filtered_df = self.df.copy()
+
+        if trade:
+            filtered_df = filtered_df[filtered_df["trade"].str.lower() == trade.lower()]
+        if spec_section:
+            filtered_df = filtered_df[self._safe_contains(filtered_df["spec_section"], spec_section)]
+        if project_name:
+            filtered_df = filtered_df[self._safe_contains(filtered_df["project_name"], project_name)]
+
+        if filtered_df.empty:
+            return {
+                "results": [],
+                "overall_confidence": "Low",
+                "confidence_score": 0.0,
+                "duplicate_warning": None,
+                "safeguards": ["No RFIs matched the selected filters."],
+                "retrieval_engine": "intent-aware-hybrid-faiss-rerank",
+                "index_status": self.index_status,
+                "query_intent": "general",
+                "expanded_queries": [base_query],
+                "candidate_count": 0,
+            }
+
+        query_profile = detect_query_intent(subject, question_text)
+        weights = query_profile["retrieval_weights"]
+        expanded_queries = expand_query(subject, question_text)
+        idxs = filtered_df.index.tolist()
+
+        merged_by_row = {}
+        for expanded_query in expanded_queries:
+            scored_rows = self._score_query_against_subset(expanded_query, filtered_df, idxs, weights)
+            for item in scored_rows[: max(top_k * 5, 10)]:
+                row_key = item["row_index"]
+                if row_key not in merged_by_row or item["similarity_score"] > merged_by_row[row_key]["similarity_score"]:
+                    merged_by_row[row_key] = item
+
+        candidates = []
+        for item in merged_by_row.values():
+            row = self.df.loc[item["row_index"]]
+            score = float(item["similarity_score"])
 
             spec_boost = 0.0
             project_boost = 0.0
@@ -330,53 +378,20 @@ class RFIRetriever:
 
             score = min(1.0, score + spec_boost + project_boost + trade_boost)
 
-            source_file = str(row.get("source_file", "")).strip()
-            source_page = str(row.get("source_page", "")).strip()
-            source_chunk = str(row.get("source_chunk", "")).strip()
-
-            citation_parts = []
-            if source_file:
-                citation_parts.append(source_file)
-            if source_page:
-                citation_parts.append(f"page {source_page}")
-            if source_chunk:
-                citation_parts.append(f"chunk {source_chunk}")
-
-            item = {
-                "rfi_id": row["rfi_id"],
-                "project_name": row["project_name"],
-                "trade": row["trade"],
-                "spec_section": row["spec_section"],
-                "subject": row["subject"],
-                "question_text": row["question_text"],
-                "response_text": row["response_text"],
-                "source_type": row.get("source_type", ""),
-                "source_file": source_file,
-                "source_page": source_page,
-                "source_chunk": source_chunk,
-                "source_citation": " | ".join(citation_parts),
-                "similarity_score": round(score, 4),
-                "score_breakdown": {
-                    "word_tfidf": round(float(word_scores[pos]), 4),
-                    "char_tfidf": round(float(char_scores[pos]), 4),
-                    "svd_semantic": round(float(svd_scores[pos]), 4),
-                    "faiss_semantic": round(float(faiss_scores[pos]), 4),
-                    "embedding": round(float(emb_scores[pos]), 4),
-                    "spec_boost": round(spec_boost, 4),
-                    "project_boost": round(project_boost, 4),
-                    "trade_boost": round(trade_boost, 4),
-                },
-            }
+            item["similarity_score"] = round(score, 4)
+            item["score_breakdown"]["spec_boost"] = round(spec_boost, 4)
+            item["score_breakdown"]["project_boost"] = round(project_boost, 4)
+            item["score_breakdown"]["trade_boost"] = round(trade_boost, 4)
 
             item["match_reasons"] = self._build_match_reasons(
                 query_subject=subject,
                 query_question=question_text,
                 row=row,
-                word_score=float(word_scores[pos]),
-                char_score=float(char_scores[pos]),
-                svd_score=float(svd_scores[pos]),
-                faiss_score=float(faiss_scores[pos]),
-                emb_score=float(emb_scores[pos]),
+                word_score=float(item["score_breakdown"]["word_tfidf"]),
+                char_score=float(item["score_breakdown"]["char_tfidf"]),
+                svd_score=float(item["score_breakdown"]["svd_semantic"]),
+                faiss_score=float(item["score_breakdown"]["faiss_semantic"]),
+                emb_score=float(item["score_breakdown"]["embedding"]),
                 trade=trade,
                 spec_section=spec_section,
                 project_name=project_name,
@@ -384,8 +399,19 @@ class RFIRetriever:
             item["confidence"] = self._confidence_label(score)
             candidates.append(item)
 
-        reranked = rerank_results(subject, question_text, candidates)
+        reranked = rerank_results(
+            subject=subject,
+            question_text=question_text,
+            candidates=candidates,
+            trade=trade,
+            spec_section=spec_section,
+            project_name=project_name,
+        )
+
         results = reranked[:top_k]
+        for item in results:
+            score = float(item.get("similarity_score", 0.0))
+            item["confidence"] = self._confidence_label(score)
 
         max_score = max((float(r["similarity_score"]) for r in results), default=0.0)
         mean_top_score = float(np.mean([float(r["similarity_score"]) for r in results])) if results else 0.0
@@ -404,40 +430,23 @@ class RFIRetriever:
         if not project_name:
             safeguards.append("No project filter applied.")
 
-        duplicate_candidates = []
-        for item in reranked[:3]:
-            score = float(item.get("similarity_score", 0.0))
-            if score >= 0.78:
-                duplicate_candidates.append({
-                    "rfi_id": item.get("rfi_id"),
-                    "subject": item.get("subject"),
-                    "project_name": item.get("project_name"),
-                    "score": round(score, 4),
-                    "source_citation": item.get("source_citation", ""),
-                })
-
         duplicate_warning = None
-        if duplicate_candidates:
-            top_dup = duplicate_candidates[0]
-            if top_dup["score"] >= 0.92:
-                duplicate_warning = (
-                    f"Probable duplicate RFI detected. Best historical match: "
-                    f"RFI {top_dup['rfi_id']} ({top_dup['subject']}) with score {top_dup['score']}."
-                )
-            else:
-                duplicate_warning = (
-                    f"Possible duplicate RFI detected. Closest historical match: "
-                    f"RFI {top_dup['rfi_id']} ({top_dup['subject']}) with score {top_dup['score']}."
-                )
+        if max_score >= 0.92 and results:
+            duplicate_warning = (
+                f"Possible duplicate RFI detected. Closest historical match: "
+                f"RFI {results[0]['rfi_id']} ({results[0]['subject']})."
+            )
 
         return {
             "results": results,
             "overall_confidence": self._confidence_label(max_score),
             "confidence_score": confidence_score,
             "duplicate_warning": duplicate_warning,
-            "duplicate_candidates": duplicate_candidates,
             "safeguards": safeguards,
-            "retrieval_engine": "hybrid-faiss-rerank-cited",
+            "retrieval_engine": "intent-aware-hybrid-faiss-rerank",
             "index_status": self.index_status,
             "candidate_count": len(candidates),
+            "query_intent": query_profile["intent"],
+            "intent_labels": query_profile["matched_labels"],
+            "expanded_queries": expanded_queries,
         }

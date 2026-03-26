@@ -3,8 +3,6 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 from scipy.cluster.hierarchy import linkage, fcluster
 
-from app.db.database import get_feedback_summary, get_workflow_summary
-
 
 def build_issue_analysis(csv_path: str = "data/raw/rfis.csv", n_clusters: int = 4):
     df = pd.read_csv(csv_path).copy()
@@ -23,33 +21,48 @@ def build_issue_analysis(csv_path: str = "data/raw/rfis.csv", n_clusters: int = 
         df["project_name"]
     )
 
-    vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), min_df=1)
+    vectorizer = TfidfVectorizer(
+        stop_words="english",
+        ngram_range=(1, 2),
+        min_df=1
+    )
     X = vectorizer.fit_transform(df["combined_text"])
 
     if len(df) == 1:
         df["cluster"] = 1
-    elif len(df) > 1:
+    else:
         max_components = min(10, max(1, X.shape[1] - 1), len(df) - 1)
         svd = TruncatedSVD(n_components=max_components, random_state=42)
         reduced = svd.fit_transform(X)
+
         k = min(n_clusters, len(df))
-        Z = linkage(reduced, method="ward")
-        df["cluster"] = fcluster(Z, t=k, criterion="maxclust")
-    else:
-        df["cluster"] = []
+        if len(df) < 2:
+            df["cluster"] = 1
+        else:
+            Z = linkage(reduced, method="ward")
+            df["cluster"] = fcluster(Z, t=k, criterion="maxclust")
 
     top_trades = (
-        df["trade"].replace("", "Unknown").value_counts().reset_index()
+        df["trade"]
+        .replace("", "Unknown")
+        .value_counts()
+        .reset_index()
     )
     top_trades.columns = ["trade", "count"]
 
     top_spec_sections = (
-        df["spec_section"].replace("", "Unknown").value_counts().reset_index()
+        df["spec_section"]
+        .replace("", "Unknown")
+        .value_counts()
+        .reset_index()
     )
     top_spec_sections.columns = ["spec_section", "count"]
 
     top_subjects = (
-        df["subject"].replace("", "Unknown").value_counts().reset_index().head(10)
+        df["subject"]
+        .replace("", "Unknown")
+        .value_counts()
+        .reset_index()
     )
     top_subjects.columns = ["subject", "count"]
 
@@ -65,27 +78,29 @@ def build_issue_analysis(csv_path: str = "data/raw/rfis.csv", n_clusters: int = 
         .sort_values("count", ascending=False)
     )
 
-    feedback_summary = get_feedback_summary()
-    workflow_summary = get_workflow_summary()
+    cluster_details = []
+    for cluster_id in sorted(df["cluster"].unique()):
+        cluster_df = df[df["cluster"] == cluster_id].copy()
+        items = cluster_df[[
+            "rfi_id",
+            "project_name",
+            "trade",
+            "spec_section",
+            "subject",
+            "question_text",
+            "response_text"
+        ]].to_dict(orient="records")
 
-    dashboard_metrics = {
-        "dataset_rows": int(len(df)),
-        "unique_projects": int(df["project_name"].replace("", pd.NA).dropna().nunique()),
-        "unique_trades": int(df["trade"].replace("", pd.NA).dropna().nunique()),
-        "unique_spec_sections": int(df["spec_section"].replace("", pd.NA).dropna().nunique()),
-        "total_feedback": feedback_summary["total_feedback"],
-        "reviewed_rfis_count": feedback_summary["reviewed_rfis_count"],
-        "total_workflow_items": workflow_summary["total_workflow_items"],
-        "avg_feedback_confidence_score": feedback_summary["avg_feedback_confidence_score"],
-        "avg_workflow_confidence_score": workflow_summary["avg_confidence_score"],
-    }
+        cluster_details.append({
+            "cluster_id": int(cluster_id),
+            "count": int(len(cluster_df)),
+            "items": items
+        })
 
     return {
-        "metrics": dashboard_metrics,
         "top_trades": top_trades.to_dict(orient="records"),
         "top_spec_sections": top_spec_sections.to_dict(orient="records"),
         "top_subjects": top_subjects.to_dict(orient="records"),
         "cluster_summary": cluster_summary.to_dict(orient="records"),
-        "feedback_summary": feedback_summary,
-        "workflow_summary": workflow_summary,
+        "cluster_details": cluster_details,
     }
